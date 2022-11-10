@@ -33,7 +33,8 @@ print(100/(end-start))'''
 
 '''from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
-ffmpeg_extract_subclip('Valorant 2022.11.09 - 18.42.52.03.DVR.mp4', 1, 4, targetname='test.mp4')'''
+
+ffmpeg_extract_subclip('teammate_lowlight.mp4', 158, 170, targetname='teammate_lowlight_cropped.mp4')'''
 
 '''
 import cv2
@@ -73,35 +74,93 @@ cv2.destroyAllWindows()
 
 import easyocr
 import cv2
+from difflib import SequenceMatcher
+import time
+
+def to_lower(x):
+    y = []
+    for word in x:
+        y.append(word.lower())
+    
+    return y
+
+def is_in(word, word_list, thre=0.8):
+    for x in word_list:
+        if SequenceMatcher(a=x, b=word).ratio() > thre:
+            return x
+    
+    return None
+
 
 TIME_STEP = 500
 WINDOW_SIZE = (640/1920, 400/1080)
-WINDOW_POS = (1277/1920, 88/1080)
-CONF_THRES = 0.75
+WINDOW_POS = (1270/1920, 85/1080)
+KILLFEED_SEPARATOR = 0.82
+# SPECTATE_WINDOW_SIZE = (400/1920, 30/1080)
+# SPECTATE_WINDOW_POS = (110/1920, 820/1080)
+SPECTATE_WINDOW_SIZE = (360/1920, 135/1080)
+SPECTATE_WINDOW_POS = (60/1920, 770/1080)
 
 
-def get_timestamps(video_path):
+my_names = ['me', 'notabadbronzie', 'leogc1801']
+spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar']
+
+my_names = to_lower(my_names)
+spectate_names = to_lower(spectate_names)
+
+def get_timestamps(video_path, start_time=0, debug=True):
     # init reader
     reader = easyocr.Reader(['en'])
 
     # init capture
     cap = cv2.VideoCapture(video_path)
 
-    curr_time = 0
+    curr_time = start_time
     cap.set(cv2.CAP_PROP_POS_MSEC, curr_time)
     success, image = cap.read()
 
+    h, w = image.shape[0:2]
+    slice = [int(WINDOW_POS[1] * h), int((WINDOW_POS[1] + WINDOW_SIZE[1]) * h), int(WINDOW_POS[0] * w), int((WINDOW_POS[0] + WINDOW_SIZE[0]) * w)]
+    spectate_slice = [int(SPECTATE_WINDOW_POS[1] * h), int((SPECTATE_WINDOW_POS[1] + SPECTATE_WINDOW_SIZE[1]) * h), int(SPECTATE_WINDOW_POS[0] * w), int((SPECTATE_WINDOW_POS[0] + SPECTATE_WINDOW_SIZE[0]) * w)]
+
+    data = {}
+
     while success:
-        h, w = image.shape[0:2]
+        killfeed = image[slice[0]:slice[1], slice[2]:slice[3]]
+        spectate = image[spectate_slice[0]:spectate_slice[1], spectate_slice[2]:spectate_slice[3]]
 
-        image = image[int(WINDOW_POS[1] * h):int((WINDOW_POS[1] + WINDOW_SIZE[1]) * h), int(WINDOW_POS[0] * w):int((WINDOW_POS[0] + WINDOW_SIZE[0]) * w)]
+        killfeed_result = reader.readtext(killfeed)
+        spectate_result = reader.readtext(spectate)
 
-        result = reader.readtext(image)
+        detected_spectate_names = []
+
+        if debug:
+            print('spectate')
+
+        for bbox, text, prob in spectate_result:
+            if debug:
+                # unpack the bounding box
+                tl, tr, br, bl = bbox
+                tl = (int(tl[0]), int(tl[1]))
+                tr = (int(tr[0]), int(tr[1]))
+                br = (int(br[0]), int(br[1]))
+                bl = (int(bl[0]), int(bl[1]))
+
+                cv2.rectangle(spectate, tl, br, (0, 255, 0), 2)
+
+                print(f'{text} - {prob} - {(tl, tr, br, bl)}')
+
+            text = text.lower()
+
+            gt = is_in(text, spectate_names)
+
+            if gt is not None:
+                detected_spectate_names.append(gt)
+
+        if debug:
+            print('killfeed')
         
-        for bbox, text, prob in result:
-            if prob < CONF_THRES:
-                continue
-
+        for bbox, text, prob in killfeed_result:
             # unpack the bounding box
             tl, tr, br, bl = bbox
             tl = (int(tl[0]), int(tl[1]))
@@ -109,19 +168,46 @@ def get_timestamps(video_path):
             br = (int(br[0]), int(br[1]))
             bl = (int(bl[0]), int(bl[1]))
 
-            cv2.rectangle(image, tl, br, (0, 255, 0), 2)
+            if debug:
+                cv2.rectangle(killfeed, tl, br, (0, 255, 0), 2)
 
-            print(f'{text} - {prob} - {(tl, tr, br, bl)}')
+                print(f'{text} - {prob} - {(tl, tr, br, bl)}')
+            
+            text = text.lower()
 
-        print()
+            gt = is_in(text, my_names)
 
-        # do stuff
-        cv2.imshow('image', image)
+            if gt is None:
+                gt = is_in(text, detected_spectate_names)
 
-        #Set waitKey
-        k = cv2.waitKey(0) & 0xFF
-        if k == 27:
-            break
+            if gt is not None:
+                timestamps = data.get(gt, [[], []])
+
+                if br[0] > int(killfeed.shape[1] * KILLFEED_SEPARATOR):
+                    # Got killed
+                    timestamps[1].append(curr_time)
+                else:
+                    # Killed someone
+                    timestamps[0].append(curr_time)
+                
+                data[gt] = timestamps
+
+        if debug:
+            print()
+
+            print(data)
+
+            print()
+
+            cv2.line(killfeed, (int(killfeed.shape[1] * KILLFEED_SEPARATOR), 0), (int(killfeed.shape[1] * KILLFEED_SEPARATOR), killfeed.shape[0]), (0, 0, 255), 2)
+
+            cv2.imshow('killfeed', killfeed)
+            cv2.imshow('spectate', spectate)
+
+            # Set waitKey
+            k = cv2.waitKey(0) & 0xFF
+            if k == 27:
+                break
 
         curr_time += TIME_STEP
         cap.set(cv2.CAP_PROP_POS_MSEC, curr_time)
@@ -130,7 +216,11 @@ def get_timestamps(video_path):
     cap.release()
     cv2.destroyAllWindows()
 
+    return data
 
-get_timestamps('Valorant 2022.11.09 - 18.42.52.03.DVR.mp4')
+start = time.time()
+data = get_timestamps('teammate_highlight.mp4', debug=False)
+end = time.time()
 
-
+print(data)
+print(end-start)
