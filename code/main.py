@@ -74,25 +74,12 @@ cv2.destroyAllWindows()
 
 import easyocr
 import cv2
-from difflib import SequenceMatcher
+import numpy as np
 import time
-
-def to_lower(x):
-    y = []
-    for word in x:
-        y.append(word.lower())
-    
-    return y
-
-def is_in(word, word_list, thre=0.8):
-    for x in word_list:
-        if SequenceMatcher(a=x, b=word).ratio() > thre:
-            return x
-    
-    return None
-
+from utils import to_lower, is_in
 
 TIME_STEP = 500
+CLIP_TIMEOUT = 30000
 WINDOW_SIZE = (640/1920, 400/1080)
 WINDOW_POS = (1270/1920, 85/1080)
 KILLFEED_SEPARATOR = 0.82
@@ -108,12 +95,21 @@ spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalk
 my_names = to_lower(my_names)
 spectate_names = to_lower(spectate_names)
 
-def get_timestamps(video_path, start_time=0, debug=True):
+def get_timestamps(video_path, start_time=0, debug=False):
     # init reader
     reader = easyocr.Reader(['en'])
 
     # init capture
     cap = cv2.VideoCapture(video_path)
+
+    # Get the frames per second
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    # Get the total numer of frames in the video.
+    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+
+    # Calculate the duration of the video in milliseconds
+    duration = (frame_count * 1000) / fps
 
     curr_time = start_time
     cap.set(cv2.CAP_PROP_POS_MSEC, curr_time)
@@ -215,7 +211,7 @@ def get_timestamps(video_path, start_time=0, debug=True):
             cv2.imshow('spectate', spectate)
 
             # Set waitKey
-            k = cv2.waitKey(0) & 0xFF
+            k = cv2.waitKey(1) & 0xFF
             if k == 27:
                 break
 
@@ -226,11 +222,60 @@ def get_timestamps(video_path, start_time=0, debug=True):
     cap.release()
     cv2.destroyAllWindows()
 
-    return data
+    return data, duration
 
-start = time.time()
-data = get_timestamps('me_highlight.mp4', debug=True)
-end = time.time()
+def timestamps_to_clips(timestamps):
+    clips = []
 
-print(data)
-print(end-start)
+    if len(timestamps) == 0:
+        return clips
+
+    timestamps = np.array(timestamps)
+
+    diff = np.array([])
+
+    if len(timestamps) >= 2:
+        diff = timestamps[1:] - timestamps[:-1]
+    
+    clip_separators = np.nonzero(diff > CLIP_TIMEOUT)[0]
+    clip_separators = np.append(clip_separators, len(timestamps)-1)
+    
+    for i in range(len(clip_separators)):
+        if i == 0:
+            clips.append([timestamps[0], timestamps[clip_separators[i]]])
+        else:
+            clips.append([timestamps[clip_separators[i-1]+1], timestamps[clip_separators[i]]])
+    
+    return clips
+
+
+def transform_timestamps(data):
+    transformed_data = {}
+
+    for name, timestamps in data.items():
+        highlight_clips = timestamps_to_clips(timestamps[0])
+        lowlight_clips = timestamps_to_clips(timestamps[1])
+
+        transformed_data[name] = [highlight_clips, lowlight_clips]
+    
+    return transformed_data
+
+
+def main():
+    start = time.time()
+    data, duration = get_timestamps('me_highlight.mp4', debug=True)
+    end = time.time()
+
+    print(data)
+    print(duration)
+    print(end-start)
+
+    data = transform_timestamps(data)
+
+    print(data)
+
+
+
+if __name__ == '__main__':
+    main()
+
