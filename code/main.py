@@ -77,9 +77,21 @@ import cv2
 import numpy as np
 import time
 from utils import to_lower, is_in
+from pathlib import Path
+from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
+from tqdm import tqdm
+
 
 TIME_STEP = 500
 CLIP_TIMEOUT = 30000
+ME_HIGHLIGHT_BEFORE = 2500
+ME_HIGHLIGHT_AFTER = -2000
+ME_LOWLIGHT_BEFORE = 4000
+ME_LOWLIGHT_AFTER = -1000
+SPECTATE_HIGHLIGHT_BEFORE = 2500
+SPECTATE_HIGHLIGHT_AFTER = 0
+SPECTATE_LOWLIGHT_BEFORE = 4000
+SPECTATE_LOWLIGHT_AFTER = 4000
 WINDOW_SIZE = (640/1920, 400/1080)
 WINDOW_POS = (1270/1920, 85/1080)
 KILLFEED_SEPARATOR = 0.82
@@ -89,13 +101,7 @@ SPECTATE_WINDOW_SIZE = (360/1920, 135/1080)
 SPECTATE_WINDOW_POS = (60/1920, 770/1080)
 
 
-my_names = ['me', 'notabadbronzie', 'leogc1801']
-spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar']
-
-my_names = to_lower(my_names)
-spectate_names = to_lower(spectate_names)
-
-def get_timestamps(video_path, start_time=0, debug=False):
+def get_timestamps(video_path, my_names, spectate_names, debug=False):
     # init reader
     reader = easyocr.Reader(['en'])
 
@@ -111,7 +117,7 @@ def get_timestamps(video_path, start_time=0, debug=False):
     # Calculate the duration of the video in milliseconds
     duration = (frame_count * 1000) / fps
 
-    curr_time = start_time
+    curr_time = 0
     cap.set(cv2.CAP_PROP_POS_MSEC, curr_time)
     success, image = cap.read()
 
@@ -260,20 +266,83 @@ def transform_timestamps(data):
     
     return transformed_data
 
+def export_clips(path, export_path, data, duration, my_names):
+    original_file_name = Path(path).stem
+    original_file_extension = Path(path).suffix
+
+    for name, timestamps in data.items():
+        highlight_clips = timestamps[0]
+        lowlight_clips = timestamps[1]
+
+        highlight_export_path = Path(export_path) / name / 'highlights'
+        lowlight_export_path = Path(export_path) / name / 'lowlights'
+
+        highlight_export_path.mkdir(parents=True, exist_ok=True)
+        lowlight_export_path.mkdir(parents=True, exist_ok=True)
+
+        for count, clip in enumerate(highlight_clips):
+
+            if is_in(name, my_names) is not None:
+                clip_start = clip[0] - ME_HIGHLIGHT_BEFORE
+                clip_end = clip[1] + ME_HIGHLIGHT_AFTER
+            else:
+                clip_start = clip[0] - SPECTATE_HIGHLIGHT_BEFORE
+                clip_end = clip[1] + SPECTATE_HIGHLIGHT_AFTER
+
+            if clip_start < 0:
+                clip_start = 0
+            
+            if clip_end > duration:
+                clip_end = duration
+            
+            clip_start /= 1000
+            clip_end /= 1000
+
+            clip_export_path = highlight_export_path / f'{original_file_name}_clip{count}{original_file_extension}'
+
+            ffmpeg_extract_subclip(path, clip_start, clip_end, targetname=str(clip_export_path))
+        
+        for count, clip in enumerate(lowlight_clips):
+            if is_in(name, my_names) is not None:
+                clip_start = clip[0] - ME_LOWLIGHT_BEFORE
+                clip_end = clip[1] + ME_LOWLIGHT_AFTER
+            else:
+                clip_start = clip[0] - SPECTATE_LOWLIGHT_BEFORE
+                clip_end = clip[1] + SPECTATE_LOWLIGHT_AFTER
+
+            if clip_start < 0:
+                clip_start = 0
+            
+            if clip_end > duration:
+                clip_end = duration
+            
+            clip_start /= 1000
+            clip_end /= 1000
+
+            clip_export_path = lowlight_export_path / f'{original_file_name}_clip{count}{original_file_extension}'
+
+            ffmpeg_extract_subclip(path, clip_start, clip_end, targetname=str(clip_export_path))
+
 
 def main():
-    start = time.time()
-    data, duration = get_timestamps('me_highlight.mp4', debug=True)
-    end = time.time()
+    my_names = ['me', 'notabadbronzie', 'leogc1801']
+    spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar']
 
-    print(data)
-    print(duration)
-    print(end-start)
+    file_paths = list(Path('').glob('*.mp4'))
+    export_path = 'exported'
 
-    data = transform_timestamps(data)
+    my_names = to_lower(my_names)
+    spectate_names = to_lower(spectate_names)
 
-    print(data)
+    for path in tqdm(file_paths):
 
+        path = str(path)
+        
+        data, duration = get_timestamps(path, my_names, spectate_names)
+
+        data = transform_timestamps(data)
+
+        export_clips(path, export_path, data, duration, my_names)
 
 
 if __name__ == '__main__':
