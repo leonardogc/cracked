@@ -134,22 +134,7 @@ def get_timestamps(video_path, start_time=0, debug=True):
 
         detected_spectate_names = []
 
-        if debug:
-            print('spectate')
-
         for bbox, text, prob in spectate_result:
-            if debug:
-                # unpack the bounding box
-                tl, tr, br, bl = bbox
-                tl = (int(tl[0]), int(tl[1]))
-                tr = (int(tr[0]), int(tr[1]))
-                br = (int(br[0]), int(br[1]))
-                bl = (int(bl[0]), int(bl[1]))
-
-                cv2.rectangle(spectate, tl, br, (0, 255, 0), 2)
-
-                print(f'{text} - {prob} - {(tl, tr, br, bl)}')
-
             text = text.lower()
 
             gt = is_in(text, spectate_names)
@@ -157,9 +142,7 @@ def get_timestamps(video_path, start_time=0, debug=True):
             if gt is not None:
                 detected_spectate_names.append(gt)
 
-        if debug:
-            print('killfeed')
-        
+
         for bbox, text, prob in killfeed_result:
             # unpack the bounding box
             tl, tr, br, bl = bbox
@@ -168,11 +151,6 @@ def get_timestamps(video_path, start_time=0, debug=True):
             br = (int(br[0]), int(br[1]))
             bl = (int(bl[0]), int(bl[1]))
 
-            if debug:
-                cv2.rectangle(killfeed, tl, br, (0, 255, 0), 2)
-
-                print(f'{text} - {prob} - {(tl, tr, br, bl)}')
-            
             text = text.lower()
 
             gt = is_in(text, my_names)
@@ -193,6 +171,38 @@ def get_timestamps(video_path, start_time=0, debug=True):
                 data[gt] = timestamps
 
         if debug:
+            print('spectate')
+            print()
+
+            for bbox, text, prob in spectate_result:
+                # unpack the bounding box
+                tl, tr, br, bl = bbox
+                tl = (int(tl[0]), int(tl[1]))
+                tr = (int(tr[0]), int(tr[1]))
+                br = (int(br[0]), int(br[1]))
+                bl = (int(bl[0]), int(bl[1]))
+
+                cv2.rectangle(spectate, tl, br, (0, 255, 0), 2)
+
+                print(f'{text} - {prob} - {(tl, tr, br, bl)}')
+
+            print()
+
+            print('killfeed')
+            print()
+
+            for bbox, text, prob in killfeed_result:
+                # unpack the bounding box
+                tl, tr, br, bl = bbox
+                tl = (int(tl[0]), int(tl[1]))
+                tr = (int(tr[0]), int(tr[1]))
+                br = (int(br[0]), int(br[1]))
+                bl = (int(bl[0]), int(bl[1]))
+
+                cv2.rectangle(killfeed, tl, br, (0, 255, 0), 2)
+
+                print(f'{text} - {prob} - {(tl, tr, br, bl)}')
+            
             print()
 
             print(data)
@@ -219,7 +229,7 @@ def get_timestamps(video_path, start_time=0, debug=True):
     return data
 
 start = time.time()
-data = get_timestamps('teammate_highlight.mp4', debug=False)
+data = get_timestamps('me_highlight.mp4', debug=True)
 end = time.time()
 
 print(data)
