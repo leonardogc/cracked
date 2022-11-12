@@ -85,7 +85,7 @@ from tqdm import tqdm
 TIME_STEP = 500
 CLIP_TIMEOUT = 30000
 ME_HIGHLIGHT_BEFORE = 2500
-ME_HIGHLIGHT_AFTER = -2000
+ME_HIGHLIGHT_AFTER = -1000
 ME_LOWLIGHT_BEFORE = 4000
 ME_LOWLIGHT_AFTER = -1000
 SPECTATE_HIGHLIGHT_BEFORE = 2500
@@ -328,8 +328,8 @@ def main():
     my_names = ['me', 'notabadbronzie', 'leogc1801']
     spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar']
 
-    file_paths = list(Path('').glob('*.mp4'))
-    export_path = 'exported'
+    file_paths = list(Path('D:\\Clips\\Valorant').glob('Va*.mp4'))
+    export_path = 'D:\\exported'
 
     my_names = to_lower(my_names)
     spectate_names = to_lower(spectate_names)
