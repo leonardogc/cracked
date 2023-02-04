@@ -80,6 +80,7 @@ from utils import to_lower, is_in
 from pathlib import Path
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 from tqdm import tqdm
+import os
 
 
 TIME_STEP = 500
@@ -99,6 +100,26 @@ KILLFEED_SEPARATOR = 0.82
 # SPECTATE_WINDOW_POS = (110/1920, 820/1080)
 SPECTATE_WINDOW_SIZE = (360/1920, 135/1080)
 SPECTATE_WINDOW_POS = (60/1920, 770/1080)
+
+def skip_ms(cap, time_step):
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    start_time = (cap.get(cv2.CAP_PROP_POS_FRAMES) * 1000) / fps
+
+    while True:
+        success = cap.grab()
+
+        curr_time = (cap.get(cv2.CAP_PROP_POS_FRAMES) * 1000) / fps
+
+        if curr_time - start_time >= time_step or not success:
+            break
+    
+    if not success:
+        return success, None, None
+
+    success, image = cap.retrieve()
+    
+    return success, image, curr_time
 
 
 def get_timestamps(video_path, my_names, spectate_names, debug=False):
@@ -221,9 +242,11 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
             if k == 27:
                 break
 
-        curr_time += TIME_STEP
+        '''curr_time += TIME_STEP
         cap.set(cv2.CAP_PROP_POS_MSEC, curr_time)
-        success, image = cap.read()
+        success, image = cap.read()'''
+
+        success, image, curr_time = skip_ms(cap, TIME_STEP)
 
     cap.release()
     cv2.destroyAllWindows()
@@ -324,19 +347,40 @@ def export_clips(path, export_path, data, duration, my_names):
             ffmpeg_extract_subclip(path, clip_start, clip_end, targetname=str(clip_export_path))
 
 
+def remove_already_exported(file_paths, export_path):
+    already_exported = []
+    not_exported = []
+
+    for path, subdirs, files in os.walk(export_path):
+        for name in files:
+            already_exported.append(name.split('_clip')[0])
+    
+    already_exported = list(set(already_exported))
+
+    for path in file_paths:
+        path = str(path)
+        name = Path(path).stem
+
+        if name not in already_exported:
+            not_exported.append(path)
+    
+    return not_exported
+
+
 def main():
     my_names = ['me', 'notabadbronzie', 'leogc1801']
     spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar']
 
-    file_paths = list(Path('D:\\Clips\\Valorant').glob('Va*.mp4'))
-    export_path = 'D:\\exported'
-
     my_names = to_lower(my_names)
     spectate_names = to_lower(spectate_names)
 
-    for path in tqdm(file_paths):
+    # file_paths can be a list with Path objects or str objects
+    file_paths = list(Path('D:\\Clips\\Valorant').glob('Va*.mp4'))
+    export_path = 'D:\\exported'
 
-        path = str(path)
+    file_paths = remove_already_exported(file_paths, export_path)
+
+    for path in tqdm(file_paths):
         
         data, duration = get_timestamps(path, my_names, spectate_names)
 
