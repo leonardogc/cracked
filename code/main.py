@@ -17,19 +17,31 @@ conda install pytorch torchvision torchaudio pytorch-cuda=11.6 opencv -c pytorch
 import time
 import cv2
 
-reader = easyocr.Reader(['en'])
+if __name__ == '__main__':
 
-img = cv2.imread('img2.png')
+    reader = easyocr.Reader(['en'])
 
-start = time.time()
+    img = cv2.imread('img2.png')
+    imgs = [img]*4
 
-for _ in range(100):
-    result = reader.readtext(img)
+    start = time.time()
 
-end = time.time()
+    for i in range(100):
+        # result = reader.readtext(img, batch_size=32)
+        result = reader.readtext_batched(imgs, batch_size=32)
 
-print(100/(end-start))'''
+        print(result[0])
+        exit()
 
+        print(i)
+
+    end = time.time()
+
+    print(100/(end-start))
+
+    exit()
+
+    # 9.8 fps batch_size >= 16'''
 
 '''from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
@@ -81,6 +93,8 @@ from pathlib import Path
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 from tqdm import tqdm
 import os
+import queue
+import threading
 
 
 TIME_STEP = 500
@@ -100,6 +114,9 @@ KILLFEED_SEPARATOR = 0.82
 # SPECTATE_WINDOW_POS = (110/1920, 820/1080)
 SPECTATE_WINDOW_SIZE = (360/1920, 135/1080)
 SPECTATE_WINDOW_POS = (60/1920, 770/1080)
+EASY_OCR_BATCH_SIZE = 32
+FRAME_QUEUE_SIZE = 10
+
 
 def skip_ms(cap, time_step):
     fps = cap.get(cv2.CAP_PROP_FPS)
@@ -122,10 +139,7 @@ def skip_ms(cap, time_step):
     return success, image, curr_time
 
 
-def get_timestamps(video_path, my_names, spectate_names, debug=False):
-    # init reader
-    reader = easyocr.Reader(['en'])
-
+def frame_extractor(frame_queue, video_path):
     # init capture
     cap = cv2.VideoCapture(video_path)
 
@@ -143,17 +157,39 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
     success, image = cap.read()
 
     h, w = image.shape[0:2]
-    slice = [int(WINDOW_POS[1] * h), int((WINDOW_POS[1] + WINDOW_SIZE[1]) * h), int(WINDOW_POS[0] * w), int((WINDOW_POS[0] + WINDOW_SIZE[0]) * w)]
-    spectate_slice = [int(SPECTATE_WINDOW_POS[1] * h), int((SPECTATE_WINDOW_POS[1] + SPECTATE_WINDOW_SIZE[1]) * h), int(SPECTATE_WINDOW_POS[0] * w), int((SPECTATE_WINDOW_POS[0] + SPECTATE_WINDOW_SIZE[0]) * w)]
-
-    data = {}
+    slice = (int(WINDOW_POS[1] * h), int((WINDOW_POS[1] + WINDOW_SIZE[1]) * h), int(WINDOW_POS[0] * w), int((WINDOW_POS[0] + WINDOW_SIZE[0]) * w))
+    spectate_slice = (int(SPECTATE_WINDOW_POS[1] * h), int((SPECTATE_WINDOW_POS[1] + SPECTATE_WINDOW_SIZE[1]) * h), int(SPECTATE_WINDOW_POS[0] * w), int((SPECTATE_WINDOW_POS[0] + SPECTATE_WINDOW_SIZE[0]) * w))
 
     while success:
         killfeed = image[slice[0]:slice[1], slice[2]:slice[3]]
         spectate = image[spectate_slice[0]:spectate_slice[1], spectate_slice[2]:spectate_slice[3]]
 
-        killfeed_result = reader.readtext(killfeed)
-        spectate_result = reader.readtext(spectate)
+        frame_queue.put((killfeed, spectate, curr_time), timeout=3600)
+
+        success, image, curr_time = skip_ms(cap, TIME_STEP)
+    
+    frame_queue.put((None, None, duration), timeout=3600)
+
+    cap.release()
+
+
+def get_timestamps(video_path, my_names, spectate_names, debug=False):
+    # init reader
+    reader = easyocr.Reader(['en'])
+
+    frame_queue = queue.Queue(maxsize=FRAME_QUEUE_SIZE)
+
+    frame_extractor_thread = threading.Thread(target=frame_extractor, args=(frame_queue, video_path))
+    frame_extractor_thread.start()
+
+    killfeed, spectate, curr_time = frame_queue.get(timeout=3600)
+
+    data = {}
+
+    while killfeed is not None and spectate is not None:
+
+        killfeed_result = reader.readtext(killfeed, batch_size=EASY_OCR_BATCH_SIZE)
+        spectate_result = reader.readtext(spectate, batch_size=EASY_OCR_BATCH_SIZE)
 
         detected_spectate_names = []
 
@@ -182,7 +218,7 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
                 gt = is_in(text, detected_spectate_names)
 
             if gt is not None:
-                timestamps = data.get(gt, [[], []])
+                timestamps = data.get(gt, ([], []))
 
                 if br[0] > int(killfeed.shape[1] * KILLFEED_SEPARATOR):
                     # Got killed
@@ -242,16 +278,13 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
             if k == 27:
                 break
 
-        '''curr_time += TIME_STEP
-        cap.set(cv2.CAP_PROP_POS_MSEC, curr_time)
-        success, image = cap.read()'''
+        killfeed, spectate, curr_time = frame_queue.get(timeout=3600)
 
-        success, image, curr_time = skip_ms(cap, TIME_STEP)
-
-    cap.release()
     cv2.destroyAllWindows()
 
-    return data, duration
+    frame_extractor_thread.join()
+
+    return data, curr_time
 
 def timestamps_to_clips(timestamps):
     clips = []
@@ -285,7 +318,7 @@ def transform_timestamps(data):
         highlight_clips = timestamps_to_clips(timestamps[0])
         lowlight_clips = timestamps_to_clips(timestamps[1])
 
-        transformed_data[name] = [highlight_clips, lowlight_clips]
+        transformed_data[name] = (highlight_clips, lowlight_clips)
     
     return transformed_data
 
