@@ -95,6 +95,7 @@ from tqdm import tqdm
 import os
 import queue
 import threading
+import multiprocessing
 
 
 TIME_STEP = 500
@@ -115,7 +116,9 @@ KILLFEED_SEPARATOR = 0.82
 SPECTATE_WINDOW_SIZE = (360/1920, 135/1080)
 SPECTATE_WINDOW_POS = (60/1920, 770/1080)
 EASY_OCR_BATCH_SIZE = 32
-FRAME_QUEUE_SIZE = 10
+BATCH_SIZE = 8
+FRAME_QUEUE_SIZE = 32
+DATA_QUEUE_SIZE = 32
 
 
 def skip_ms(cap, time_step):
@@ -173,23 +176,118 @@ def frame_extractor(frame_queue, video_path):
     cap.release()
 
 
-def get_timestamps(video_path, my_names, spectate_names, debug=False):
+def data_extractor(data_queue, frame_queue, debug):
     # init reader
     reader = easyocr.Reader(['en'])
 
-    frame_queue = queue.Queue(maxsize=FRAME_QUEUE_SIZE)
+    while True:
 
-    frame_extractor_thread = threading.Thread(target=frame_extractor, args=(frame_queue, video_path))
-    frame_extractor_thread.start()
+        killfeed_batch = []
+        spectate_batch = []
+        curr_time_batch = []
 
-    killfeed, spectate, curr_time = frame_queue.get(timeout=3600)
+        for _ in range(BATCH_SIZE):
+            killfeed, spectate, curr_time = frame_queue.get(timeout=3600)
+
+            if killfeed is None or spectate is None:
+                break
+
+            killfeed_batch.append(killfeed)
+            spectate_batch.append(spectate)
+            curr_time_batch.append(curr_time)
+
+        if len(curr_time_batch) == 0:
+            break
+
+        killfeed_result_batch = reader.readtext_batched(killfeed_batch, batch_size=EASY_OCR_BATCH_SIZE)
+        spectate_result_batch = reader.readtext_batched(spectate_batch, batch_size=EASY_OCR_BATCH_SIZE)
+
+        for i in range(len(curr_time_batch)):
+            data_queue.put((killfeed_result_batch[i], spectate_result_batch[i], killfeed_batch[i].shape[1], curr_time_batch[i]), timeout=3600)
+
+        if debug:
+
+            break_code = False
+
+            for i in range(len(curr_time_batch)):
+                killfeed = killfeed_batch[i]
+                spectate = spectate_batch[i]
+                killfeed_result = killfeed_result_batch[i]
+                spectate_result = spectate_result_batch[i]
+
+                print('spectate')
+                print()
+
+                for bbox, text, prob in spectate_result:
+                    # unpack the bounding box
+                    tl, tr, br, bl = bbox
+                    tl = (int(tl[0]), int(tl[1]))
+                    tr = (int(tr[0]), int(tr[1]))
+                    br = (int(br[0]), int(br[1]))
+                    bl = (int(bl[0]), int(bl[1]))
+
+                    cv2.rectangle(spectate, tl, br, (0, 255, 0), 2)
+
+                    print(f'{text} - {prob} - {(tl, tr, br, bl)}')
+
+                print()
+
+                print('killfeed')
+                print()
+
+                for bbox, text, prob in killfeed_result:
+                    # unpack the bounding box
+                    tl, tr, br, bl = bbox
+                    tl = (int(tl[0]), int(tl[1]))
+                    tr = (int(tr[0]), int(tr[1]))
+                    br = (int(br[0]), int(br[1]))
+                    bl = (int(bl[0]), int(bl[1]))
+
+                    cv2.rectangle(killfeed, tl, br, (0, 255, 0), 2)
+
+                    print(f'{text} - {prob} - {(tl, tr, br, bl)}')
+
+                print()
+
+                cv2.line(killfeed, (int(killfeed.shape[1] * KILLFEED_SEPARATOR), 0), (int(killfeed.shape[1] * KILLFEED_SEPARATOR), killfeed.shape[0]), (0, 0, 255), 2)
+
+                cv2.imshow('killfeed', killfeed)
+                cv2.imshow('spectate', spectate)
+
+                # Set waitKey
+                k = cv2.waitKey(1) & 0xFF
+                if k == 27:
+                    break_code = True
+                    break
+            
+            if break_code:
+                break
+        
+        if len(curr_time_batch) < BATCH_SIZE:
+            break
+    
+    data_queue.put((None, None, None, curr_time), timeout=3600)
+    cv2.destroyAllWindows()
+
+
+def get_timestamps(video_path, my_names, spectate_names, debug=False):
+    frame_queue = multiprocessing.Queue(maxsize=FRAME_QUEUE_SIZE)
+    data_queue = multiprocessing.Queue(maxsize=DATA_QUEUE_SIZE)
+
+    frame_extractor_process = multiprocessing.Process(target=frame_extractor, args=(frame_queue, video_path))
+    frame_extractor_process.start()
+
+    data_extractor_process = multiprocessing.Process(target=data_extractor, args=(data_queue, frame_queue, debug))
+    data_extractor_process.start()
 
     data = {}
 
-    while killfeed is not None and spectate is not None:
+    while True:
 
-        killfeed_result = reader.readtext(killfeed, batch_size=EASY_OCR_BATCH_SIZE)
-        spectate_result = reader.readtext(spectate, batch_size=EASY_OCR_BATCH_SIZE)
+        killfeed_result, spectate_result, killfeed_width, curr_time = data_queue.get(timeout=3600)
+
+        if killfeed_result is None or spectate_result is None:
+            break
 
         detected_spectate_names = []
 
@@ -220,7 +318,7 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
             if gt is not None:
                 timestamps = data.get(gt, ([], []))
 
-                if br[0] > int(killfeed.shape[1] * KILLFEED_SEPARATOR):
+                if br[0] > int(killfeed_width * KILLFEED_SEPARATOR):
                     # Got killed
                     timestamps[1].append(curr_time)
                 else:
@@ -229,60 +327,8 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
                 
                 data[gt] = timestamps
 
-        if debug:
-            print('spectate')
-            print()
-
-            for bbox, text, prob in spectate_result:
-                # unpack the bounding box
-                tl, tr, br, bl = bbox
-                tl = (int(tl[0]), int(tl[1]))
-                tr = (int(tr[0]), int(tr[1]))
-                br = (int(br[0]), int(br[1]))
-                bl = (int(bl[0]), int(bl[1]))
-
-                cv2.rectangle(spectate, tl, br, (0, 255, 0), 2)
-
-                print(f'{text} - {prob} - {(tl, tr, br, bl)}')
-
-            print()
-
-            print('killfeed')
-            print()
-
-            for bbox, text, prob in killfeed_result:
-                # unpack the bounding box
-                tl, tr, br, bl = bbox
-                tl = (int(tl[0]), int(tl[1]))
-                tr = (int(tr[0]), int(tr[1]))
-                br = (int(br[0]), int(br[1]))
-                bl = (int(bl[0]), int(bl[1]))
-
-                cv2.rectangle(killfeed, tl, br, (0, 255, 0), 2)
-
-                print(f'{text} - {prob} - {(tl, tr, br, bl)}')
-            
-            print()
-
-            print(data)
-
-            print()
-
-            cv2.line(killfeed, (int(killfeed.shape[1] * KILLFEED_SEPARATOR), 0), (int(killfeed.shape[1] * KILLFEED_SEPARATOR), killfeed.shape[0]), (0, 0, 255), 2)
-
-            cv2.imshow('killfeed', killfeed)
-            cv2.imshow('spectate', spectate)
-
-            # Set waitKey
-            k = cv2.waitKey(1) & 0xFF
-            if k == 27:
-                break
-
-        killfeed, spectate, curr_time = frame_queue.get(timeout=3600)
-
-    cv2.destroyAllWindows()
-
-    frame_extractor_thread.join()
+    frame_extractor_process.join()
+    data_extractor_process.join()
 
     return data, curr_time
 
@@ -423,5 +469,22 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # main()
 
+    my_names = ['me', 'notabadbronzie', 'leogc1801']
+    spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar']
+
+    my_names = to_lower(my_names)
+    spectate_names = to_lower(spectate_names)
+
+    start = time.time()
+
+    data, duration = get_timestamps('me_highlight.mp4', my_names, spectate_names, debug=True)
+
+    print((data, duration))
+
+    end = time.time()
+
+    print(end-start)
+
+    
