@@ -94,7 +94,7 @@ from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 from tqdm import tqdm
 import os
 import queue
-import threading
+import multiprocessing
 
 
 TIME_STEP = 500
@@ -115,7 +115,7 @@ KILLFEED_SEPARATOR = 0.82
 SPECTATE_WINDOW_SIZE = (360/1920, 135/1080)
 SPECTATE_WINDOW_POS = (60/1920, 770/1080)
 EASY_OCR_BATCH_SIZE = 32
-FRAME_QUEUE_SIZE = 10
+FRAME_QUEUE_SIZE = 16
 
 
 def skip_ms(cap, time_step):
@@ -137,6 +137,22 @@ def skip_ms(cap, time_step):
     success, image = cap.retrieve()
     
     return success, image, curr_time
+
+def put_non_block(queue_obj, item):
+    while True:
+        try:
+            queue_obj.put(item, timeout=0.5)
+            return
+        except queue.Full:
+            pass
+
+def get_non_block(queue_obj):
+    while True:
+        try:
+            item = queue_obj.get(timeout=0.5)
+            return item
+        except queue.Empty:
+            pass
 
 
 def frame_extractor(frame_queue, video_path):
@@ -164,11 +180,11 @@ def frame_extractor(frame_queue, video_path):
         killfeed = image[slice[0]:slice[1], slice[2]:slice[3]]
         spectate = image[spectate_slice[0]:spectate_slice[1], spectate_slice[2]:spectate_slice[3]]
 
-        frame_queue.put((killfeed, spectate, curr_time), timeout=3600)
+        put_non_block(frame_queue, (killfeed, spectate, curr_time))
 
         success, image, curr_time = skip_ms(cap, TIME_STEP)
     
-    frame_queue.put((None, None, duration), timeout=3600)
+    put_non_block(frame_queue, (None, None, duration))
 
     cap.release()
 
@@ -177,12 +193,12 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
     # init reader
     reader = easyocr.Reader(['en'])
 
-    frame_queue = queue.Queue(maxsize=FRAME_QUEUE_SIZE)
+    frame_queue = multiprocessing.Queue(maxsize=FRAME_QUEUE_SIZE)
 
-    frame_extractor_thread = threading.Thread(target=frame_extractor, args=(frame_queue, video_path))
-    frame_extractor_thread.start()
+    frame_extractor_process = multiprocessing.Process(target=frame_extractor, args=(frame_queue, video_path), daemon=True)
+    frame_extractor_process.start()
 
-    killfeed, spectate, curr_time = frame_queue.get(timeout=3600)
+    killfeed, spectate, curr_time = get_non_block(frame_queue)
 
     data = {}
 
@@ -274,15 +290,17 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
             cv2.imshow('spectate', spectate)
 
             # Set waitKey
-            k = cv2.waitKey(1) & 0xFF
+            '''k = cv2.waitKey(1) & 0xFF
             if k == 27:
-                break
+                break'''
+            
+            cv2.waitKey(1)
 
-        killfeed, spectate, curr_time = frame_queue.get(timeout=3600)
+        killfeed, spectate, curr_time = get_non_block(frame_queue)
 
     cv2.destroyAllWindows()
 
-    frame_extractor_thread.join()
+    frame_extractor_process.join()
 
     return data, curr_time
 
@@ -298,6 +316,8 @@ def timestamps_to_clips(timestamps):
 
     if len(timestamps) >= 2:
         diff = timestamps[1:] - timestamps[:-1]
+
+    # clip_separators saves the index of the timestamp where each clip ends
     
     clip_separators = np.nonzero(diff > CLIP_TIMEOUT)[0]
     clip_separators = np.append(clip_separators, len(timestamps)-1)
@@ -394,24 +414,26 @@ def remove_already_exported(file_paths, export_path):
         path = str(path)
         name = Path(path).stem
 
-        if name not in already_exported:
+        if '_ignore' not in name and name not in already_exported:
             not_exported.append(path)
     
     return not_exported
 
 
 def main():
-    my_names = ['me', 'notabadbronzie', 'leogc1801']
-    spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar']
+    my_names = ['me', 'notabadbronzie', 'leogc1801', 'gabe itch']
+    spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar', 'youmad10']
 
     my_names = to_lower(my_names)
     spectate_names = to_lower(spectate_names)
 
     # file_paths can be a list with Path objects or str objects
-    file_paths = list(Path('D:\\Clips\\Valorant').glob('Va*.mp4'))
+    file_paths = list(Path('D:\\Clips\\Valorant').glob('*.mp4'))
     export_path = 'D:\\exported'
 
     file_paths = remove_already_exported(file_paths, export_path)
+
+    no_clips = []
 
     for path in tqdm(file_paths):
         
@@ -421,7 +443,30 @@ def main():
 
         export_clips(path, export_path, data, duration, my_names)
 
+        if len(data) == 0:
+            no_clips.append(path)
+    
+    if len(no_clips) > 0:
+        print('\nWe detected no clips in the following videos:\n')
+
+        for path in no_clips:
+            print(path)
+
 
 if __name__ == '__main__':
     main()
+
+    '''my_names = ['me', 'notabadbronzie', 'leogc1801', 'gabe itch']
+    spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar', 'youmad10']
+
+    my_names = to_lower(my_names)
+    spectate_names = to_lower(spectate_names)
+
+    start = time.time()
+
+    data, duration = get_timestamps('me_highlight.mp4', my_names, spectate_names, debug=False)
+
+    end = time.time()
+
+    print(end - start)'''
 
