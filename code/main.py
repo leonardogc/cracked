@@ -1,4 +1,6 @@
-'''conda install pytorch torchvision torchaudio pytorch-cuda=11.6 -c pytorch -c nvidia
+'''
+python 3.9
+conda install pytorch torchvision torchaudio pytorch-cuda=11.6 -c pytorch -c nvidia
 pip install easyocr
 pip uninstall opencv-python-headless
 pip install opencv-python
@@ -464,7 +466,7 @@ if __name__ == '__main__':
 
     start = time.time()
 
-    data, duration = get_timestamps('me_highlight.mp4', my_names, spectate_names, debug=False)
+    data, duration = get_timestamps('me_highlight.mp4', my_names, spectate_names, debug=True)
 
     end = time.time()
 
