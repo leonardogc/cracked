@@ -130,7 +130,7 @@ def skip_ms(cap, time_step):
 
         curr_time = (cap.get(cv2.CAP_PROP_POS_FRAMES) * 1000) / fps
 
-        if curr_time - start_time >= time_step or not success:
+        if not success or curr_time - start_time >= time_step:
             break
     
     if not success:
