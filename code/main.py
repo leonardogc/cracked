@@ -98,6 +98,7 @@ import os
 import queue
 import multiprocessing
 
+GAME = 'CSGO' # 'Valorant'
 
 TIME_STEP = 500
 CLIP_TIMEOUT = 30000
@@ -109,15 +110,24 @@ SPECTATE_HIGHLIGHT_BEFORE = 2500
 SPECTATE_HIGHLIGHT_AFTER = 0
 SPECTATE_LOWLIGHT_BEFORE = 4000
 SPECTATE_LOWLIGHT_AFTER = 4000
-WINDOW_SIZE = (640/1920, 400/1080)
-WINDOW_POS = (1270/1920, 85/1080)
-KILLFEED_SEPARATOR = 0.82
-# SPECTATE_WINDOW_SIZE = (400/1920, 30/1080)
-# SPECTATE_WINDOW_POS = (110/1920, 820/1080)
-SPECTATE_WINDOW_SIZE = (360/1920, 135/1080)
-SPECTATE_WINDOW_POS = (60/1920, 770/1080)
+
 EASY_OCR_BATCH_SIZE = 32
 FRAME_QUEUE_SIZE = 16
+
+if GAME == 'Valorant':
+    WINDOW_SIZE = (640/1920, 400/1080)
+    WINDOW_POS = (1270/1920, 85/1080)
+    KILLFEED_SEPARATOR = 0.82
+    # SPECTATE_WINDOW_SIZE = (400/1920, 30/1080)
+    # SPECTATE_WINDOW_POS = (110/1920, 820/1080)
+    SPECTATE_WINDOW_SIZE = (360/1920, 135/1080)
+    SPECTATE_WINDOW_POS = (60/1920, 770/1080)
+elif GAME == 'CSGO':
+    WINDOW_SIZE = (540/1920, 350/1080)
+    WINDOW_POS = (1370/1920, 73/1080)
+    KILLFEED_SEPARATOR = 0.94
+    SPECTATE_WINDOW_SIZE = (335/1920, 45/1080)
+    SPECTATE_WINDOW_POS = (745/1920, 883/1080)
 
 
 def skip_ms(cap, time_step):
@@ -296,7 +306,7 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
             if k == 27:
                 break'''
             
-            cv2.waitKey(1)
+            cv2.waitKey(0)
 
         killfeed, spectate, curr_time = get_non_block(frame_queue)
 
@@ -423,15 +433,23 @@ def remove_already_exported(file_paths, export_path):
 
 
 def main():
-    my_names = ['me', 'notabadbronzie', 'leogc1801', 'gabe itch']
-    spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar', 'youmad10']
+    if GAME == 'Valorant':
+        my_names = ['me', 'notabadbronzie', 'leogc1801', 'gabe itch']
+        spectate_names = ['electricyttrium', 'toli', 'ros', 'foowalksintoabar', 'foowalksintoavar', 'foowalksintoawar', 'foowalksintoacar', 'youmad10']
+    elif GAME == 'CSGO':
+        my_names = ['handsome llama']
+        spectate_names = ['foowalksintoabar']
 
     my_names = to_lower(my_names)
     spectate_names = to_lower(spectate_names)
 
     # file_paths can be a list with Path objects or str objects
-    file_paths = list(Path('D:\\Clips\\Valorant').glob('*.mp4'))
-    export_path = 'D:\\exported'
+    if GAME == 'Valorant':
+        file_paths = list(Path('D:\\Clips\\Valorant').glob('*.mp4'))
+        export_path = 'D:\\exported'
+    elif GAME == 'CSGO':
+        file_paths = list(Path('D:\\Clips\\Counter-strike  Global Offensive').glob('*.mp4'))
+        export_path = 'D:\\exported_csgo'
 
     file_paths = remove_already_exported(file_paths, export_path)
 
