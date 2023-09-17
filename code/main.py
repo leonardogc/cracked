@@ -98,7 +98,7 @@ import os
 import queue
 import multiprocessing
 
-GAME = 'CSGO' # 'Valorant'
+GAME = 'CS2' # 'CSGO' 'Valorant'
 
 TIME_STEP = 500
 CLIP_TIMEOUT = 30000
@@ -128,6 +128,12 @@ elif GAME == 'CSGO':
     KILLFEED_SEPARATOR = 0.94
     SPECTATE_WINDOW_SIZE = (335/1920, 45/1080)
     SPECTATE_WINDOW_POS = (745/1920, 883/1080)
+elif GAME == 'CS2':
+    WINDOW_SIZE = (540/1920, 350/1080)
+    WINDOW_POS = (1375/1920, 69/1080)
+    KILLFEED_SEPARATOR = 0.95
+    SPECTATE_WINDOW_SIZE = (184/1920, 22/1080)
+    SPECTATE_WINDOW_POS = (740/1920, 1018/1080)
 
 
 def skip_ms(cap, time_step):
@@ -269,7 +275,7 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
                 br = (int(br[0]), int(br[1]))
                 bl = (int(bl[0]), int(bl[1]))
 
-                cv2.rectangle(spectate, tl, br, (0, 255, 0), 2)
+                cv2.rectangle(spectate, tl, br, (0, 255, 0), 1)
 
                 print(f'{text} - {prob} - {(tl, tr, br, bl)}')
 
@@ -286,7 +292,7 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
                 br = (int(br[0]), int(br[1]))
                 bl = (int(bl[0]), int(bl[1]))
 
-                cv2.rectangle(killfeed, tl, br, (0, 255, 0), 2)
+                cv2.rectangle(killfeed, tl, br, (0, 255, 0), 1)
 
                 print(f'{text} - {prob} - {(tl, tr, br, bl)}')
             
@@ -296,7 +302,7 @@ def get_timestamps(video_path, my_names, spectate_names, debug=False):
 
             print()
 
-            cv2.line(killfeed, (int(killfeed.shape[1] * KILLFEED_SEPARATOR), 0), (int(killfeed.shape[1] * KILLFEED_SEPARATOR), killfeed.shape[0]), (0, 0, 255), 2)
+            cv2.line(killfeed, (int(killfeed.shape[1] * KILLFEED_SEPARATOR), 0), (int(killfeed.shape[1] * KILLFEED_SEPARATOR), killfeed.shape[0]), (0, 0, 255), 1)
 
             cv2.imshow('killfeed', killfeed)
             cv2.imshow('spectate', spectate)
@@ -439,6 +445,9 @@ def main():
     elif GAME == 'CSGO':
         my_names = ['handsome llama']
         spectate_names = ['foowalksintoabar']
+    elif GAME == 'CS2':
+        my_names = ['handsome llama']
+        spectate_names = ['foowalksintoabar', 'the eagle']
 
     my_names = to_lower(my_names)
     spectate_names = to_lower(spectate_names)
@@ -450,6 +459,9 @@ def main():
     elif GAME == 'CSGO':
         file_paths = list(Path('D:\\Clips\\Counter-strike  Global Offensive').glob('*.mp4'))
         export_path = 'D:\\exported_csgo'
+    elif GAME == 'CS2':
+        file_paths = list(Path('D:\\Clips\\Counter-strike 2').glob('*.mp4'))
+        export_path = 'D:\\exported_cs2'
 
     file_paths = remove_already_exported(file_paths, export_path)
 
